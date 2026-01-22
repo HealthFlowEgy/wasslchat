@@ -233,3 +233,75 @@ spec:
   selector:
     matchLabels:
       app: wasslchat-api
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evolution-api
+  namespace: wasslchat
+  labels:
+    app: evolution-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evolution-api
+  template:
+    metadata:
+      labels:
+        app: evolution-api
+    spec:
+      containers:
+        - name: evolution
+          image: atendai/evolution-api:v2.1.0
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVER_URL
+              value: "http://evolution-api:8080"
+            - name: AUTHENTICATION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: wasslchat-secrets
+                  key: EVOLUTION_API_KEY
+            - name: DATABASE_ENABLED
+              value: "true"
+            - name: DATABASE_CONNECTION_URI
+              valueFrom:
+                secretKeyRef:
+                  name: wasslchat-secrets
+                  key: STAGING_DATABASE_URL
+            - name: DATABASE_CONNECTION_CLIENT_NAME
+              value: "evolution-prod"
+            - name: REDIS_ENABLED
+              value: "true"
+            - name: REDIS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: wasslchat-secrets
+                  key: STAGING_REDIS_URL
+            - name: WEBHOOK_GLOBAL_ENABLED
+              value: "true"
+            - name: WEBHOOK_GLOBAL_URL
+              value: "http://wasslchat-api:3000/webhooks/whatsapp"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evolution-api
+  namespace: wasslchat
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: evolution-api
