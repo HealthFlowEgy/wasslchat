@@ -1,0 +1,205 @@
+# Digital Ocean App Platform Specification
+# Deploy using: doctl apps create --spec .do/app.yaml
+
+name: wasslchat
+region: fra
+features:
+  - buildpack-stack=ubuntu-22
+
+# Alerts
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# API Service
+services:
+  - name: api
+    github:
+      repo: your-org/wasslchat
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: infrastructure/docker/Dockerfile.api
+    http_port: 3000
+    instance_count: 2
+    instance_size_slug: professional-xs
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    routes:
+      - path: /api
+      - path: /webhooks
+      - path: /health
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: JWT_REFRESH_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: EVOLUTION_API_URL
+        scope: RUN_TIME
+        value: "https://evolution.wasslchat.com"
+      - key: EVOLUTION_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: HEALTHPAY_API_URL
+        scope: RUN_TIME
+        value: "https://api.healthpay.tech"
+      - key: HEALTHPAY_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: FAWRY_BASE_URL
+        scope: RUN_TIME
+        value: "https://www.atfawry.com"
+      - key: FAWRY_MERCHANT_CODE
+        scope: RUN_TIME
+        type: SECRET
+      - key: FAWRY_SECURITY_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: WASSLBOX_API_URL
+        scope: RUN_TIME
+        value: "https://api.wasslbox.com"
+      - key: WASSLBOX_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: BOSTA_API_URL
+        scope: RUN_TIME
+        value: "https://app.bosta.co/api/v2"
+      - key: BOSTA_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+    cors:
+      allow_origins:
+        - prefix: https://app.wasslchat.com
+        - prefix: https://dashboard.wasslchat.com
+      allow_methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allow_headers:
+        - Content-Type
+        - Authorization
+        - X-Tenant-ID
+      allow_credentials: true
+
+  - name: dashboard
+    github:
+      repo: your-org/wasslchat
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: infrastructure/docker/Dockerfile.dashboard
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xs
+    routes:
+      - path: /
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://api.wasslchat.com"
+
+# Background Workers
+workers:
+  - name: worker
+    github:
+      repo: your-org/wasslchat
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: infrastructure/docker/Dockerfile.worker
+    instance_count: 1
+    instance_size_slug: professional-xs
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+
+# Scheduled Jobs
+jobs:
+  - name: cleanup-expired-sessions
+    github:
+      repo: your-org/wasslchat
+      branch: main
+    dockerfile_path: infrastructure/docker/Dockerfile.api
+    kind: PRE_DEPLOY
+    run_command: npm run job:cleanup-sessions
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+
+  - name: sync-integrations
+    github:
+      repo: your-org/wasslchat
+      branch: main
+    dockerfile_path: infrastructure/docker/Dockerfile.api
+    kind: PRE_DEPLOY
+    run_command: npm run job:sync-integrations
+    instance_count: 1
+    instance_size_slug: basic-xs
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+
+# Databases (Managed)
+databases:
+  - name: wasslchat-db
+    engine: PG
+    version: "15"
+    size: db-s-1vcpu-1gb
+    num_nodes: 1
+    production: true
+
+  - name: wasslchat-redis
+    engine: REDIS
+    version: "7"
+    size: db-s-1vcpu-1gb
+    num_nodes: 1
+    production: true
+
+# Domains
+domains:
+  - domain: wasslchat.com
+    type: PRIMARY
+    zone: wasslchat.com
+  - domain: api.wasslchat.com
+    type: ALIAS
+    zone: wasslchat.com
+  - domain: dashboard.wasslchat.com
+    type: ALIAS
+    zone: wasslchat.com

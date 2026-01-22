@@ -1,0 +1,235 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wasslchat
+  labels:
+    app: wasslchat
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wasslchat-config
+  namespace: wasslchat
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  EVOLUTION_API_URL: "http://evolution-api:8080"
+  HEALTHPAY_API_URL: "https://api.healthpay.tech"
+  FAWRY_BASE_URL: "https://www.atfawry.com"
+  WASSLBOX_API_URL: "https://api.wasslbox.com"
+  BOSTA_API_URL: "https://app.bosta.co/api/v2"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasslchat-api
+  namespace: wasslchat
+  labels:
+    app: wasslchat-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wasslchat-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: wasslchat-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: wasslchat
+      containers:
+        - name: api
+          image: registry.digitalocean.com/wasslchat/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: wasslchat-config
+            - secretRef:
+                name: wasslchat-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+      imagePullSecrets:
+        - name: do-registry
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - wasslchat-api
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasslchat-worker
+  namespace: wasslchat
+  labels:
+    app: wasslchat-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wasslchat-worker
+  template:
+    metadata:
+      labels:
+        app: wasslchat-worker
+    spec:
+      serviceAccountName: wasslchat
+      containers:
+        - name: worker
+          image: registry.digitalocean.com/wasslchat/worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: wasslchat-config
+            - secretRef:
+                name: wasslchat-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      imagePullSecrets:
+        - name: do-registry
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wasslchat-api
+  namespace: wasslchat
+  labels:
+    app: wasslchat-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: wasslchat-api
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: wasslchat-api-hpa
+  namespace: wasslchat
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: wasslchat-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wasslchat-ingress
+  namespace: wasslchat
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+    - hosts:
+        - api.wasslchat.com
+      secretName: wasslchat-api-tls
+  rules:
+    - host: api.wasslchat.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wasslchat-api
+                port:
+                  number: 80
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wasslchat
+  namespace: wasslchat
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wasslchat-api-pdb
+  namespace: wasslchat
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: wasslchat-api

@@ -1,0 +1,102 @@
+version: '3.8'
+
+# Development Docker Compose
+# Run: docker-compose up -d
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: wasslchat-postgres-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: wasslchat
+      POSTGRES_PASSWORD: wasslchat
+      POSTGRES_DB: wasslchat
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wasslchat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wasslchat-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  evolution:
+    image: atendai/evolution-api:v2.1.0
+    container_name: wasslchat-evolution-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: wasslchat-dev-key
+      DATABASE_ENABLED: "true"
+      DATABASE_CONNECTION_URI: postgresql://wasslchat:wasslchat@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: wasslchat-dev
+      REDIS_ENABLED: "true"
+      REDIS_URI: redis://redis:6379
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_URL: http://host.docker.internal:3000/webhooks/whatsapp
+    volumes:
+      - evolution_dev_instances:/evolution/instances
+      - evolution_dev_store:/evolution/store
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: n8n for workflow automation testing
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: wasslchat-n8n-dev
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: admin
+      WEBHOOK_URL: http://localhost:5678
+      GENERIC_TIMEZONE: Africa/Cairo
+    volumes:
+      - n8n_dev_data:/home/node/.n8n
+    profiles:
+      - automation
+
+  # Optional: Mailhog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: wasslchat-mailhog-dev
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    profiles:
+      - email
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  evolution_dev_instances:
+  evolution_dev_store:
+  n8n_dev_data:

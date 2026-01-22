@@ -1,0 +1,246 @@
+name: Deploy to Digital Ocean
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: registry.digitalocean.com
+  IMAGE_NAME: wasslchat
+  CLUSTER_NAME: wasslchat-k8s
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: https://staging.wasslchat.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Login to DO Container Registry
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infrastructure/docker/Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save DigitalOcean kubeconfig
+        run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
+
+      - name: Update Kubernetes secrets
+        run: |
+          kubectl create secret generic wasslchat-secrets \
+            --from-literal=DATABASE_URL='${{ secrets.STAGING_DATABASE_URL }}' \
+            --from-literal=REDIS_URL='${{ secrets.STAGING_REDIS_URL }}' \
+            --from-literal=JWT_SECRET='${{ secrets.JWT_SECRET }}' \
+            --from-literal=JWT_REFRESH_SECRET='${{ secrets.JWT_REFRESH_SECRET }}' \
+            --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+            --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
+            --from-literal=EVOLUTION_API_KEY='${{ secrets.EVOLUTION_API_KEY }}' \
+            --from-literal=HEALTHPAY_API_KEY='${{ secrets.HEALTHPAY_API_KEY }}' \
+            --from-literal=FAWRY_SECURITY_KEY='${{ secrets.FAWRY_SECURITY_KEY }}' \
+            --namespace=staging \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to Kubernetes (Staging)
+        run: |
+          # Update image tag in deployment
+          kubectl set image deployment/wasslchat-api \
+            api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }} \
+            --namespace=staging
+          
+          # Wait for rollout
+          kubectl rollout status deployment/wasslchat-api --namespace=staging --timeout=300s
+
+      - name: Run database migrations
+        run: |
+          kubectl exec -it deployment/wasslchat-api --namespace=staging -- \
+            npx prisma migrate deploy
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods --namespace=staging -l app=wasslchat-api
+          kubectl get services --namespace=staging
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "✅ WasslChat deployed to staging",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*✅ Deployment Successful*\n*Environment:* Staging\n*Commit:* `${{ github.sha }}`\n*Actor:* ${{ github.actor }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://app.wasslchat.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Login to DO Container Registry
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Promote staging image to production
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:staging
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:production
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:staging \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }}-prod
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:production
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }}-prod
+
+      - name: Save DigitalOcean kubeconfig
+        run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
+
+      - name: Update Kubernetes secrets (Production)
+        run: |
+          kubectl create secret generic wasslchat-secrets \
+            --from-literal=DATABASE_URL='${{ secrets.PRODUCTION_DATABASE_URL }}' \
+            --from-literal=REDIS_URL='${{ secrets.PRODUCTION_REDIS_URL }}' \
+            --from-literal=JWT_SECRET='${{ secrets.JWT_SECRET }}' \
+            --from-literal=JWT_REFRESH_SECRET='${{ secrets.JWT_REFRESH_SECRET }}' \
+            --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+            --from-literal=ANTHROPIC_API_KEY='${{ secrets.ANTHROPIC_API_KEY }}' \
+            --from-literal=EVOLUTION_API_KEY='${{ secrets.EVOLUTION_API_KEY }}' \
+            --from-literal=HEALTHPAY_API_KEY='${{ secrets.HEALTHPAY_API_KEY }}' \
+            --from-literal=FAWRY_SECURITY_KEY='${{ secrets.FAWRY_SECURITY_KEY }}' \
+            --namespace=production \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to Kubernetes (Production)
+        run: |
+          kubectl set image deployment/wasslchat-api \
+            api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:production \
+            --namespace=production
+          
+          kubectl rollout status deployment/wasslchat-api --namespace=production --timeout=300s
+
+      - name: Run database migrations
+        run: |
+          kubectl exec -it deployment/wasslchat-api --namespace=production -- \
+            npx prisma migrate deploy
+
+      - name: Create release tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = `v${new Date().toISOString().split('T')[0].replace(/-/g, '.')}-${{ github.run_number }}`;
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha
+            });
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚀 WasslChat deployed to production!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*🚀 Production Deployment Successful*\n*Commit:* `${{ github.sha }}`\n*Actor:* ${{ github.actor }}\n*URL:* https://app.wasslchat.com"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [deploy-staging, deploy-production]
+    steps:
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Save DigitalOcean kubeconfig
+        run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
+
+      - name: Rollback deployment
+        run: |
+          NAMESPACE=${{ github.event.inputs.environment || 'staging' }}
+          kubectl rollout undo deployment/wasslchat-api --namespace=$NAMESPACE
+
+      - name: Notify Slack on rollback
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ WasslChat deployment rolled back",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*⚠️ Deployment Rolled Back*\n*Environment:* ${{ github.event.inputs.environment || 'staging' }}\n*Reason:* Deployment failed"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

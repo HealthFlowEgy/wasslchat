@@ -1,0 +1,232 @@
+version: '3.8'
+
+services:
+  # ===================
+  # Application Services
+  # ===================
+  
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.api
+    container_name: wasslchat-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - EVOLUTION_API_URL=http://evolution:8080
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HEALTHPAY_API_URL=${HEALTHPAY_API_URL}
+      - HEALTHPAY_API_KEY=${HEALTHPAY_API_KEY}
+      - FAWRY_BASE_URL=${FAWRY_BASE_URL}
+      - FAWRY_MERCHANT_CODE=${FAWRY_MERCHANT_CODE}
+      - FAWRY_SECURITY_KEY=${FAWRY_SECURITY_KEY}
+      - WASSLBOX_API_URL=${WASSLBOX_API_URL}
+      - WASSLBOX_API_KEY=${WASSLBOX_API_KEY}
+      - BOSTA_API_URL=${BOSTA_API_URL}
+      - BOSTA_API_KEY=${BOSTA_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - wasslchat-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    container_name: wasslchat-worker
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - api
+      - redis
+    networks:
+      - wasslchat-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.dashboard
+    container_name: wasslchat-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://api:3000
+    depends_on:
+      - api
+    networks:
+      - wasslchat-network
+
+  # ===================
+  # Infrastructure
+  # ===================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: wasslchat-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-wasslchat}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wasslchat}
+      - POSTGRES_DB=${POSTGRES_DB:-wasslchat}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wasslchat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wasslchat-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: wasslchat-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wasslchat-network
+
+  evolution:
+    image: atendai/evolution-api:v2.1.0
+    container_name: wasslchat-evolution
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_URL=http://evolution:8080
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-wasslchat}:${POSTGRES_PASSWORD:-wasslchat}@postgres:5432/evolution
+      - DATABASE_CONNECTION_CLIENT_NAME=wasslchat
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - WEBSOCKET_ENABLED=true
+      - WEBHOOK_GLOBAL_ENABLED=true
+      - WEBHOOK_GLOBAL_URL=http://api:3000/webhooks/whatsapp
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - wasslchat-network
+
+  # ===================
+  # Reverse Proxy
+  # ===================
+
+  nginx:
+    image: nginx:alpine
+    container_name: wasslchat-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/docker/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - api
+      - dashboard
+    networks:
+      - wasslchat-network
+
+  # ===================
+  # Monitoring (Optional)
+  # ===================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: wasslchat-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - wasslchat-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wasslchat-grafana
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - wasslchat-network
+    profiles:
+      - monitoring
+
+networks:
+  wasslchat-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  evolution_instances:
+  evolution_store:
+  nginx_logs:
+  prometheus_data:
+  grafana_data:
