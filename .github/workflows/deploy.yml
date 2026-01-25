@@ -15,9 +15,9 @@ on:
           - production
 
 env:
-  REGISTRY: registry.digitalocean.com
+  REGISTRY: registry.digitalocean.com/healthflow-registry
   IMAGE_NAME: wasslchat
-  CLUSTER_NAME: wasslchat-k8s
+  CLUSTER_NAME: medication-ai-cluster
 
 jobs:
   deploy-staging:
