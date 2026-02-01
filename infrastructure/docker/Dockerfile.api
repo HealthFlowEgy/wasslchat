@@ -37,7 +37,10 @@ COPY --from=deps /app/packages/database/node_modules ./packages/database/node_mo
 COPY . .
 
 # Generate Prisma client
-RUN pnpm --filter @wasslchat/database db:generate
+RUN pnpm --filter @wasslchat/database generate
+
+# Build database package
+RUN pnpm --filter @wasslchat/database build
 
 # Build application
 RUN pnpm --filter @wasslchat/api build
