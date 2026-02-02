@@ -64,8 +64,8 @@ jobs:
       - name: Update Kubernetes secrets
         run: |
           kubectl create secret generic wasslchat-secrets \
-            --from-literal=DATABASE_URL='${{ secrets.STAGING_DATABASE_URL }}' \
-            --from-literal=REDIS_URL='${{ secrets.STAGING_REDIS_URL }}' \
+            --from-literal=STAGING_DATABASE_URL='${{ secrets.STAGING_DATABASE_URL }}' \
+            --from-literal=STAGING_REDIS_URL='${{ secrets.STAGING_REDIS_URL }}' \
             --from-literal=JWT_SECRET='${{ secrets.JWT_SECRET }}' \
             --from-literal=JWT_REFRESH_SECRET='${{ secrets.JWT_REFRESH_SECRET }}' \
             --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
@@ -75,6 +75,9 @@ jobs:
             --from-literal=FAWRY_SECURITY_KEY='${{ secrets.FAWRY_SECURITY_KEY }}' \
             --namespace=wasslchat \
             --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Integrate DigitalOcean Container Registry
+        run: doctl registry kubernetes-install --cluster ${{ env.CLUSTER_NAME }} --namespace wasslchat
 
       - name: Apply Kubernetes manifests
         run: |
