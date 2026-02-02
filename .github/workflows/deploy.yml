@@ -79,12 +79,17 @@ jobs:
       - name: Integrate DigitalOcean Container Registry
         run: |
           # Generate registry credentials secret - it defaults to kube-system namespace
-          # Apply to kube-system first, then copy to wasslchat namespace
+          # Apply to kube-system first
           doctl registry kubernetes-manifest | kubectl apply -f -
+          # Delete existing secret in wasslchat namespace if it exists, then recreate
+          kubectl delete secret registry-healthflow-registry -n wasslchat --ignore-not-found=true
           # Copy the secret to wasslchat namespace
           kubectl get secret registry-healthflow-registry -n kube-system -o yaml | \
             sed 's/namespace: kube-system/namespace: wasslchat/' | \
-            kubectl apply -f -
+            sed '/resourceVersion:/d' | \
+            sed '/uid:/d' | \
+            sed '/creationTimestamp:/d' | \
+            kubectl create -f -
 
       - name: Apply Kubernetes manifests
         run: |
