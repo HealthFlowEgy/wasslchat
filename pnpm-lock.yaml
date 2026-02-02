@@ -131,6 +131,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      slugify:
+        specifier: ^1.6.6
+        version: 1.6.6
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
@@ -6579,6 +6582,11 @@ packages:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
     dev: true
+
+  /slugify@1.6.6:
+    resolution: {integrity: sha512-h+z7HKHYXj6wJU+AnS/+IH8Uh9fdcX1Lrhg1/VMdf9PwoBQXFcXiAdsy2tSK0P6gKwJLXp02r90ahUCqHk9rrw==}
+    engines: {node: '>=8.0.0'}
+    dev: false
 
   /sonic-boom@3.8.1:
     resolution: {integrity: sha512-y4Z8LCDBuum+PBP3lSV7RHrXscqksve/bi0as7mhwVnBW+/wUqKT/2Kb7um8yqcFy0duYbbPxzt89Zy2nOCaxg==}
