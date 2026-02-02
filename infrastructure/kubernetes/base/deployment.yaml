@@ -88,7 +88,7 @@ spec:
               exec:
                 command: ["/bin/sh", "-c", "sleep 10"]
       imagePullSecrets:
-        - name: do-registry
+        - name: registry-healthflow-registry
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -138,7 +138,7 @@ spec:
               cpu: "500m"
               memory: "512Mi"
       imagePullSecrets:
-        - name: do-registry
+        - name: registry-healthflow-registry
 
 ---
 apiVersion: v1
