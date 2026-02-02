@@ -2,8 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Injectable()
-export class ConversationsService {
+export class HealthService {
   constructor(private readonly prisma: PrismaService) {}
   
-  // TODO: Implement service methods
+  async check() {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return { status: 'ok', database: 'connected' };
+    } catch (error) {
+      return { status: 'error', database: 'disconnected' };
+    }
+  }
 }

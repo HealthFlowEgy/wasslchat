@@ -1,18 +1,18 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { PaymentsService } from './users.service';
+import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantId } from '../auth/decorators/current-user.decorator';
 
-@ApiTags('Payments')
+@ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
 @Controller({ path: 'users', version: '1' })
 @UseGuards(JwtAuthGuard)
-export class PaymentsController {
-  constructor(private readonly service: PaymentsService) {}
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
 
   @Get()
   async findAll(@TenantId() tenantId: string) {
-    return { message: 'Payments endpoint - TODO: implement' };
+    return { message: 'Users endpoint - TODO: implement' };
   }
 }

@@ -1,18 +1,14 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { ConversationsService } from './health.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { TenantId } from '../auth/decorators/current-user.decorator';
+import { Controller, Get } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { HealthService } from './health.service';
 
-@ApiTags('Conversations')
-@ApiBearerAuth('JWT-auth')
+@ApiTags('Health')
 @Controller({ path: 'health', version: '1' })
-@UseGuards(JwtAuthGuard)
-export class ConversationsController {
-  constructor(private readonly service: ConversationsService) {}
+export class HealthController {
+  constructor(private readonly healthService: HealthService) {}
 
   @Get()
-  async findAll(@TenantId() tenantId: string) {
-    return { message: 'Conversations endpoint - TODO: implement' };
+  async check() {
+    return this.healthService.check();
   }
 }
