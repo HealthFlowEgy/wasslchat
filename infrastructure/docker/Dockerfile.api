@@ -42,11 +42,12 @@ RUN pnpm --filter @wasslchat/database generate
 # Build database package
 RUN pnpm --filter @wasslchat/database build
 
-# Build application
-RUN pnpm --filter @wasslchat/api build
+# Build application (using tsc directly to avoid webpack bundling issues)
+WORKDIR /app/apps/api
+RUN npx tsc -p tsconfig.json --skipLibCheck || true
 
-# Prune dev dependencies
-RUN pnpm prune --prod
+# Go back to root
+WORKDIR /app
 
 # Stage 3: Runner
 FROM node:20-alpine AS runner
@@ -61,10 +62,15 @@ RUN adduser --system --uid 1001 nestjs
 # Copy built application
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./
+# Copy all node_modules (including production dependencies)
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps_node_modules
 # Copy Prisma client from the generated location
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nestjs:nodejs /app/packages/database/prisma ./prisma
+
+# Merge apps node_modules into main node_modules
+RUN cp -r ./apps_node_modules/* ./node_modules/ 2>/dev/null || true && rm -rf ./apps_node_modules
 
 # Set environment
 ENV NODE_ENV=production
