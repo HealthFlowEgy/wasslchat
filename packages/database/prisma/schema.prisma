@@ -858,7 +858,7 @@ model ChatbotSession {
   contactId     String       @map("contact_id") @db.Uuid
   conversationId String?     @map("conversation_id") @db.Uuid
   currentNodeId String?      @map("current_node_id")
-  status        SessionStatus @default(ACTIVE)
+  status        ChatbotSessionStatus @default(ACTIVE)
   variables     Json         @default("{}")
   history       Json         @default("[]")
   startedAt     DateTime     @default(now()) @map("started_at")
@@ -884,7 +884,7 @@ enum TriggerType {
   @@schema("public")
 }
 
-enum SessionStatus {
+enum ChatbotSessionStatus {
   ACTIVE
   PAUSED
   COMPLETED
@@ -1022,7 +1022,7 @@ model WhatsAppSession {
   displayName     String?        @map("display_name")
   profilePicture  String?        @map("profile_picture")
   connectionType  ConnectionType @default(BAILEYS) @map("connection_type")
-  status          SessionStatus  @default(DISCONNECTED)
+  status          WhatsAppSessionStatus  @default(DISCONNECTED)
   qrCode          String?        @map("qr_code")
   qrCodeExpiresAt DateTime?      @map("qr_code_expires_at")
   pairingCode     String?        @map("pairing_code")
@@ -1054,7 +1054,7 @@ enum ConnectionType {
   @@schema("public")
 }
 
-enum SessionStatus {
+enum WhatsAppSessionStatus {
   CONNECTED
   DISCONNECTED
   CONNECTING
