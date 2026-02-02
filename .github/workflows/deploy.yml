@@ -58,6 +58,9 @@ jobs:
       - name: Save DigitalOcean kubeconfig
         run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
 
+      - name: Create namespace if not exists
+        run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Update Kubernetes secrets
         run: |
           kubectl create secret generic wasslchat-secrets \
@@ -146,6 +149,9 @@ jobs:
 
       - name: Save DigitalOcean kubeconfig
         run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
+
+      - name: Create namespace if not exists (Production)
+        run: kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Update Kubernetes secrets (Production)
         run: |
