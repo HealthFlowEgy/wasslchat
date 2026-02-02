@@ -59,7 +59,7 @@ jobs:
         run: doctl kubernetes cluster kubeconfig save ${{ env.CLUSTER_NAME }}
 
       - name: Create namespace if not exists
-        run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+        run: kubectl create namespace wasslchat --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Update Kubernetes secrets
         run: |
@@ -73,28 +73,32 @@ jobs:
             --from-literal=EVOLUTION_API_KEY='${{ secrets.EVOLUTION_API_KEY }}' \
             --from-literal=HEALTHPAY_API_KEY='${{ secrets.HEALTHPAY_API_KEY }}' \
             --from-literal=FAWRY_SECURITY_KEY='${{ secrets.FAWRY_SECURITY_KEY }}' \
-            --namespace=staging \
+            --namespace=wasslchat \
             --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f infrastructure/kubernetes/base/deployment.yaml
 
       - name: Deploy to Kubernetes (Staging)
         run: |
           # Update image tag in deployment
           kubectl set image deployment/wasslchat-api \
             api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }} \
-            --namespace=staging
+            --namespace=wasslchat
           
           # Wait for rollout
-          kubectl rollout status deployment/wasslchat-api --namespace=staging --timeout=300s
+          kubectl rollout status deployment/wasslchat-api --namespace=wasslchat --timeout=300s
 
       - name: Run database migrations
         run: |
-          kubectl exec -it deployment/wasslchat-api --namespace=staging -- \
+          kubectl exec -it deployment/wasslchat-api --namespace=wasslchat -- \
             npx prisma migrate deploy
 
       - name: Verify deployment
         run: |
-          kubectl get pods --namespace=staging -l app=wasslchat-api
-          kubectl get services --namespace=staging
+          kubectl get pods --namespace=wasslchat -l app=wasslchat-api
+          kubectl get services --namespace=wasslchat
 
       - name: Notify Slack on success
         if: success()
