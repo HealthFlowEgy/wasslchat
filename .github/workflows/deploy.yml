@@ -77,7 +77,9 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Integrate DigitalOcean Container Registry
-        run: doctl registry kubernetes-install --namespace wasslchat
+        run: |
+          # Generate registry credentials secret and apply to namespace
+          doctl registry kubernetes-manifest | kubectl apply -n wasslchat -f -
 
       - name: Apply Kubernetes manifests
         run: |
