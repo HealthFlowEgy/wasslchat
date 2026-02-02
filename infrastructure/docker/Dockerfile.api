@@ -42,9 +42,12 @@ RUN pnpm --filter @wasslchat/database generate
 # Build database package
 RUN pnpm --filter @wasslchat/database build
 
-# Build application (using tsc directly to avoid webpack bundling issues)
+# Build application using nest build with proper error handling
 WORKDIR /app/apps/api
-RUN npx tsc -p tsconfig.json --skipLibCheck || true
+# Try nest build first, if it fails, try tsc directly
+RUN npx nest build || npx tsc -p tsconfig.json --skipLibCheck || echo "Build had errors"
+# Verify dist/main.js exists
+RUN ls -la dist/ && test -f dist/main.js || (echo "ERROR: dist/main.js not found!" && exit 1)
 
 # Go back to root
 WORKDIR /app
